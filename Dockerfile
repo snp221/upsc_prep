@@ -15,7 +15,7 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir django==6.0 gunicorn
 
-COPY upsc_prep /app
+COPY . /app
 
 # Collect static files into /app/staticfiles during build (optional)
 RUN python manage.py collectstatic --noinput || true
