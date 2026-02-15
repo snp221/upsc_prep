@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ date }} – Current Affairs{% endblock %}
+
+{% block content %}
+<section class="max-w-6xl mx-auto px-6 py-16">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <h2 class="text-3xl font-bold">
+      {{ date }}
+    </h2>
+    <a href="{% url 'current_affairs' %}" class="text-blue-700 text-sm">
+      ← Back to dates
+    </a>
+  </div>
+
+  <!-- Affairs -->
+  <div class="space-y-2">
+    {% for item in summaries %}
+      <div class="bg-white p-4 rounded-lg shadow-sm border">
+        <div>
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h3 class="font-semibold text-lg">
+                {{ item.Topic }}
+              </h3>
+              <span class="text-sm text-gray-500">
+                {{ item.Summary }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {% if item.mains_points or item.mains_question %}
+          <div class="mt-3 border-t pt-3">
+            <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Editorial → Mains points</p>
+            {% if item.mains_points %}
+              <p class="text-gray-700 text-sm whitespace-pre-wrap">{{ item.mains_points }}</p>
+            {% endif %}
+            {% if item.mains_question %}
+              <p class="text-gray-800 text-sm mt-2 font-medium">Mains Question: {{ item.mains_question }}</p>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    {% empty %}
+      <p class="text-gray-500">No data available for this date.</p>
+    {% endfor %}
+  </div>
+
+  <!-- Generate digest helper (manual trigger) -->
+  <div class="mt-8 text-right">
+    <a
+      href="{% url 'ca_generate_digest' date=date %}"
+      class="inline-flex items-center text-xs px-3 py-1 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-50"
+    >
+      Generate / Refresh mains digest for this date
+    </a>
+  </div>
+
+</section>
+{% endblock %}

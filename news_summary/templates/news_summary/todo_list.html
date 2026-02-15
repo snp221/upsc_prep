@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}UPSC Study To-Do{% endblock %}
+
+{% block content %}
+<section class="max-w-4xl mx-auto px-6 py-16">
+  <h2 class="text-2xl font-semibold mb-4">UPSC Study To-Do</h2>
+  <p class="text-gray-600 mb-6 text-sm">
+    Create and track small, focused tasks for GS, Optional, Essay, and revision.
+  </p>
+
+  <!-- Add task form -->
+  <form method="post" class="mb-8 bg-white border rounded-lg p-4 shadow-sm">
+    {% csrf_token %}
+    <div class="flex flex-col md:flex-row gap-3">
+      <input
+        type="text"
+        name="title"
+        placeholder="e.g. Write one GS2 answer on federalism"
+        class="flex-1 border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-none"
+        required
+      >
+      <input
+        type="text"
+        name="subject"
+        placeholder="Subject / Paper (e.g. GS2, Polity)"
+        class="md:w-56 border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-none"
+      >
+    </div>
+    <textarea
+      name="description"
+      rows="2"
+      class="mt-3 w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-none"
+      placeholder="Optional note: topic, source, or how you'll practice."
+    ></textarea>
+    <button
+      type="submit"
+      class="mt-3 inline-flex items-center px-4 py-2 bg-blue-700 text-white rounded-md text-sm hover:bg-blue-800"
+    >
+      Add Task
+    </button>
+  </form>
+
+  <!-- Task list -->
+  {% if todos %}
+    <div class="bg-white border rounded-lg divide-y shadow-sm">
+      {% for t in todos %}
+        <div class="flex items-start justify-between gap-3 px-4 py-3 {% if t.completed %}bg-gray-50{% endif %}">
+          <div>
+            <p class="text-sm font-medium {% if t.completed %}line-through text-gray-400{% else %}text-gray-900{% endif %}">
+              {{ t.title }}
+            </p>
+            <p class="text-xs text-gray-500 mt-1">
+              {{ t.subject }} · Created {{ t.created_at|date:"M d, Y" }}
+            </p>
+            {% if t.description %}
+              <p class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{{ t.description }}</p>
+            {% endif %}
+          </div>
+          <div class="text-right text-xs">
+            <a
+              href="{% url 'todo_toggle' t.pk %}"
+              class="inline-flex items-center px-3 py-1 rounded-full border {% if t.completed %}border-gray-400 text-gray-500{% else %}border-green-600 text-green-700{% endif %} hover:bg-gray-50"
+            >
+              {% if t.completed %}Mark Pending{% else %}Mark Done{% endif %}
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-gray-500">No tasks yet. Add a few goals for today.</p>
+  {% endif %}
+</section>
+{% endblock %}
