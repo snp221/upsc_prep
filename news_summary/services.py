@@ -1,22 +1,21 @@
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.auth.credentials import Credentials
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from collections import defaultdict
 from datetime import datetime
 import os
 import json
 
 def get_google_sheet_data():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
     # Try environment variable first (for deployment), then file (for local dev)
     google_creds_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
     if google_creds_json:
         # Parse JSON from environment variable
         creds_dict = json.loads(google_creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        creds = ServiceAccountCredentials.from_service_account_info(creds_dict)
     else:
         # Fallback to local file for development
-        creds = ServiceAccountCredentials.from_json_keyfile_name('news_summary/gsheet.json', scope)
+        creds = ServiceAccountCredentials.from_service_account_file('news_summary/gsheet.json')
     
     client = gspread.authorize(creds)
 
