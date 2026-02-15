@@ -6,16 +6,22 @@ from datetime import datetime
 import os
 import json
 
+# Define Google Sheets and Drive API scopes (gspread needs Drive to find sheets by name)
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets.readonly',
+    'https://www.googleapis.com/auth/drive.readonly'
+]
+
 def get_google_sheet_data():
     # Try environment variable first (for deployment), then file (for local dev)
     google_creds_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
     if google_creds_json:
         # Parse JSON from environment variable
         creds_dict = json.loads(google_creds_json)
-        creds = ServiceAccountCredentials.from_service_account_info(creds_dict)
+        creds = ServiceAccountCredentials.from_service_account_info(creds_dict, scopes=SCOPES)
     else:
         # Fallback to local file for development
-        creds = ServiceAccountCredentials.from_service_account_file('news_summary/gsheet.json')
+        creds = ServiceAccountCredentials.from_service_account_file('news_summary/gsheet.json', scopes=SCOPES)
     
     client = gspread.authorize(creds)
 
