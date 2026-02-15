@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     git \
   && rm -rf /var/lib/apt/lists/*
 
-COPY upsc_prep/requirements.txt ./requirements.txt
+COPY requirements.txt ./requirements.txt
 
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir django==6.0 gunicorn
