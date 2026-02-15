@@ -1,0 +1,1 @@
+web: gunicorn upsc_prep.wsgi:application

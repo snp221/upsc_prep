@@ -2,10 +2,22 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from collections import defaultdict
 from datetime import datetime
+import os
+import json
 
 def get_google_sheet_data():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(r'C:\Users\sv221\OneDrive\Desktop\django_tutorial\upsc_prep\news_summary\gsheet.json', scope)
+    
+    # Try environment variable first (for deployment), then file (for local dev)
+    google_creds_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
+    if google_creds_json:
+        # Parse JSON from environment variable
+        creds_dict = json.loads(google_creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    else:
+        # Fallback to local file for development
+        creds = ServiceAccountCredentials.from_json_keyfile_name('news_summary/gsheet.json', scope)
+    
     client = gspread.authorize(creds)
 
     # Open the Google Sheet by name and select the first sheet

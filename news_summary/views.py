@@ -218,8 +218,9 @@ def upsc_chat(request):
         else:
             try:
                 # Initialize ChromaDB client
+                chroma_path = os.getenv("CHROMA_PATH", os.path.join(settings.BASE_DIR, "chroma_db"))
                 client = chromadb.PersistentClient(
-                    path=os.path.join(settings.BASE_DIR, "chroma_db"),
+                    path=chroma_path,
                     settings=Settings(anonymized_telemetry=False),
                 )
 
@@ -439,8 +440,9 @@ def answer_eval(request):
                     )
                 else:
                     # Initialize ChromaDB client
+                    chroma_path = os.getenv("CHROMA_PATH", os.path.join(settings.BASE_DIR, "chroma_db"))
                     client = chromadb.PersistentClient(
-                        path=os.path.join(settings.BASE_DIR, "chroma_db"),
+                        path=chroma_path,
                         settings=Settings(anonymized_telemetry=False),
                     )
 
