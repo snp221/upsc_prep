@@ -24,4 +24,4 @@ EXPOSE 8000
 
 ENV DJANGO_SETTINGS_MODULE=upsc_prep.settings
 
-CMD ["gunicorn", "upsc_prep.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["gunicorn", "upsc_prep.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "120", "--workers", "1", "--preload"]
