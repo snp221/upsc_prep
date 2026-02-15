@@ -13,9 +13,69 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import numpy as np
 from datetime import date
+from typing import Optional
 
 # Load environment variables for OpenAI, etc.
 load_dotenv()
+
+
+FRIENDLY_SMALL_TALK_RESPONSES = {
+    "default": (
+        "Hi! I'm your UPSC study assistant. Ask me anything about syllabus, current affairs, answer writing, or revision strategies and I'll help."
+    ),
+    "thanks": (
+        "You're welcome! Let me know the next UPSC topic or doubt you want to tackle."
+    ),
+}
+
+
+def is_small_talk(message: str) -> Optional[str]:
+    """Return the response key if the user message is casual chit-chat."""
+
+    if not message:
+        return None
+
+    text = message.strip().lower()
+    if not text:
+        return None
+
+    gratitude_phrases = {
+        "thanks",
+        "thank you",
+        "thanks a lot",
+        "ty",
+        "thx",
+    }
+    greeting_phrases = {
+        "hi",
+        "hello",
+        "hey",
+        "namaste",
+        "good morning",
+        "good evening",
+        "good afternoon",
+        "hola",
+    }
+
+    normalized = text.replace("!", "").replace(".", "")
+
+    if normalized in gratitude_phrases or any(
+        normalized.startswith(p) for p in gratitude_phrases
+    ):
+        return "thanks"
+
+    if normalized in greeting_phrases or any(
+        normalized.startswith(p) for p in greeting_phrases
+    ):
+        return "default"
+
+    # Short non-question chit-chat like "ok", "cool", "awesome"
+    short_tokens = {"ok", "okay", "cool", "awesome", "great", "fine", "yo"}
+    tokens = set(normalized.split())
+    if len(tokens) <= 3 and "?" not in text and tokens.issubset(short_tokens):
+        return "default"
+
+    return None
 
 
 def home(request):
@@ -216,139 +276,207 @@ def upsc_chat(request):
         if not question:
             error = "Please enter a question."
         else:
-            try:
-                # Initialize ChromaDB client
-                chroma_path = os.getenv("CHROMA_PATH", os.path.join(settings.BASE_DIR, "chroma_db"))
-                client = chromadb.PersistentClient(
-                    path=chroma_path,
-                    settings=Settings(anonymized_telemetry=False),
+            small_talk_key = is_small_talk(question)
+            if small_talk_key:
+                response_text = FRIENDLY_SMALL_TALK_RESPONSES.get(
+                    small_talk_key,
+                    FRIENDLY_SMALL_TALK_RESPONSES["default"],
                 )
+                answer = response_text
+                chat_history = chat_history + [
+                    {"role": "user", "content": question},
+                    {"role": "assistant", "content": answer},
+                ]
+                request.session["upsc_chat_history"] = chat_history
+                request.session["upsc_chat_last_date"] = today_str
+                request.session.modified = True
+            else:
+                try:
+                    # Initialize embedding model once for both relevance check and RAG search
+                    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+                    question_vec = embedding_model.encode([question])[0]
+                    question_norm = float(np.linalg.norm(question_vec)) or 1.0
 
-                # Initialize embedding model
-                embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+                    # Lightweight similarity gate: compare against common UPSC topic anchors
+                    common_upsc_topics = [
+                        "indian polity",
+                        "economic development",
+                        "geography",
+                        "international relations",
+                        "science and technology",
+                        "environment and ecology",
+                        "ethics and integrity",
+                        "current affairs",
+                        "history of india",
+                        "essay paper",
+                        "gs1 syllabus",
+                        "gs2 syllabus",
+                        "gs3 syllabus",
+                        "gs4 syllabus",
+                    ]
+                    topic_vecs = embedding_model.encode(common_upsc_topics)
+                    topic_norms = [float(np.linalg.norm(vec)) or 1.0 for vec in topic_vecs]
+                    similarities = [
+                        float(question_vec @ topic_vecs[i] / (question_norm * topic_norms[i]))
+                        for i in range(len(topic_vecs))
+                    ]
+                    best_similarity = max(similarities) if similarities else 0.0
 
-                # Build query embedding for the latest user question
-                query_embedding = embedding_model.encode([question]).tolist()[0]
-
-                # Initialize OpenAI client
-                api_key = os.getenv("OPENAI_API_KEY")
-                if not api_key:
-                    raise RuntimeError(
-                        "OPENAI_API_KEY not set. Please add it to your .env file."
-                    )
-
-                openai_client = OpenAI(api_key=api_key)
-
-                # Get collections
-                collections = {
-                    "books": client.get_collection(name="books"),
-                    "essays": client.get_collection(name="essays"),
-                    "ncert": client.get_collection(name="ncert"),
-                    "pyq": client.get_collection(name="pyq"),
-                }
-
-                # Collect relevant content (do not over-filter by distance)
-                all_content = []
-                for collection_name, collection in collections.items():
-                    try:
-                        results = collection.query(
-                            query_embeddings=[query_embedding],
-                            n_results=4,
-                            include=["documents", "metadatas", "distances"],
+                    api_key = os.getenv("OPENAI_API_KEY")
+                    if not api_key:
+                        raise RuntimeError(
+                            "OPENAI_API_KEY not set. Please add it to your .env file."
                         )
 
-                        if results["documents"] and results["documents"][0]:
-                            for doc, metadata, distance in zip(
-                                results["documents"][0],
-                                results["metadatas"][0],
-                                results["distances"][0],
-                            ):
-                                source = metadata.get("source", "") if metadata else ""
-                                all_content.append(
-                                    {
-                                        "content": doc,
-                                        "source": f"{collection_name.upper()}: {source}",
-                                        "relevance": 1 - distance,
-                                    }
-                                )
-                    except Exception as e:  # pragma: no cover - logging only
-                        error = f"Error searching {collection_name}: {e}"
+                    openai_client = OpenAI(api_key=api_key)
 
-                if not all_content and not error:
-                    error = "No relevant content found in knowledge base."
+                    # If the question does not resemble UPSC topics, use a lightweight generic response
+                    if best_similarity < 0.35:
+                        generic_prompt = (
+                            "You are a friendly UPSC assistant. The user asked something outside strict UPSC material. "
+                            "Respond briefly (<=120 words), encourage them to focus on UPSC prep, and suggest a relevant next step."
+                        )
+                        response = openai_client.chat.completions.create(
+                            model="gpt-3.5-turbo",
+                            messages=[
+                                {"role": "system", "content": generic_prompt},
+                                {"role": "user", "content": question},
+                            ],
+                            max_tokens=200,
+                            temperature=0.7,
+                        )
 
-                if all_content:
-                    # Sort by relevance and take top 5
-                    all_content.sort(key=lambda x: x["relevance"], reverse=True)
-                    top_content = all_content[:5]
-                    sources = top_content
+                        answer = (response.choices[0].message.content or "").replace("**", "").strip()
+                        chat_history = chat_history + [
+                            {"role": "user", "content": question},
+                            {"role": "assistant", "content": answer},
+                        ]
+                        request.session["upsc_chat_history"] = chat_history
+                        request.session["upsc_chat_last_date"] = today_str
+                        request.session.modified = True
+                    else:
+                        # Initialize ChromaDB client only for UPSC-relevant questions
+                        chroma_path = os.getenv("CHROMA_PATH", os.path.join(settings.BASE_DIR, "chroma_db"))
+                        client = chromadb.PersistentClient(
+                            path=chroma_path,
+                            settings=Settings(anonymized_telemetry=False),
+                        )
 
-                    # Prepare context for LLM
-                    context_text = "=== RELEVANT UPSC STUDY MATERIAL ===\n\n"
-                    for i, item in enumerate(top_content, 1):
-                        context_text += f"Source {i}: {item['source']}\n"
-                        context_text += f"Content: {item['content'][:800]}...\n\n"
+                        # Reuse question embedding for the vector search
+                        query_embedding = question_vec.tolist()
 
-                    # Build conversation messages with history
-                    system_prompt = (
-                        "You are an expert UPSC preparation tutor. Use the provided "
-                        "study materials to give concise, structured answers.\n\n"
-                        "Guidelines (very important):\n"
-                        "- Keep answers short and focused (around 120–180 words)\n"
-                        "- Use simple structure that is easy to read in plain text\n"
-                        "- Prefer numbered or hyphenated points, but DO NOT use Markdown bold/italics (no **, no *)\n"
-                        "- Include 2–4 key points or dimensions of the answer, not long essays\n"
-                        "- Cite which sources you used when relevant\n"
-                        "- If information is insufficient, briefly mention what's missing\n"
-                        "- Output must be plain text only, without any Markdown formatting"
-                    )
+                    # Get collections
+                    collections = {
+                        "books": client.get_collection(name="books"),
+                        "essays": client.get_collection(name="essays"),
+                        "ncert": client.get_collection(name="ncert"),
+                        "pyq": client.get_collection(name="pyq"),
+                    }
 
-                    # Temporary history including the new user question
-                    temp_history = chat_history + [
-                        {"role": "user", "content": question}
-                    ]
+                    # Collect relevant content (do not over-filter by distance)
+                    all_content = []
+                    for collection_name, collection in collections.items():
+                        try:
+                            results = collection.query(
+                                query_embeddings=[query_embedding],
+                                n_results=4,
+                                include=["documents", "metadatas", "distances"],
+                            )
 
-                    # Limit history to last 10 turns to keep prompts manageable
-                    recent_history = temp_history[-10:]
+                            if results["documents"] and results["documents"][0]:
+                                for doc, metadata, distance in zip(
+                                    results["documents"][0],
+                                    results["metadatas"][0],
+                                    results["distances"][0],
+                                ):
+                                    source = (
+                                        metadata.get("source", "") if metadata else ""
+                                    )
+                                    all_content.append(
+                                        {
+                                            "content": doc,
+                                            "source": f"{collection_name.upper()}: {source}",
+                                            "relevance": 1 - distance,
+                                        }
+                                    )
+                        except Exception as e:  # pragma: no cover - logging only
+                            error = f"Error searching {collection_name}: {e}"
 
-                    messages = [{"role": "system", "content": system_prompt}]
-                    for m in recent_history[:-1]:
-                        messages.append({"role": m["role"], "content": m["content"]})
+                    if not all_content and not error:
+                        error = "No relevant content found in knowledge base."
 
-                    # Latest user message augmented with RAG context
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Question: {question}\n\n{context_text}\n\n"
-                                "Using the above study material and our previous conversation, "
-                                "provide a comprehensive UPSC-focused answer."
-                            ),
-                        }
-                    )
+                    if all_content:
+                        # Sort by relevance and take top 5
+                        all_content.sort(key=lambda x: x["relevance"], reverse=True)
+                        top_content = all_content[:5]
+                        sources = top_content
 
-                    response = openai_client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=messages,
-                        max_tokens=1000,
-                        temperature=0.7,
-                    )
+                        # Prepare context for LLM
+                        context_text = "=== RELEVANT UPSC STUDY MATERIAL ===\n\n"
+                        for i, item in enumerate(top_content, 1):
+                            context_text += f"Source {i}: {item['source']}\n"
+                            context_text += f"Content: {item['content'][:800]}...\n\n"
 
-                    answer = response.choices[0].message.content or ""
-                    # Strip any accidental Markdown bold markers
-                    answer = answer.replace("**", "").strip()
+                        # Build conversation messages with history
+                        system_prompt = (
+                            "You are an expert UPSC preparation tutor. Use the provided "
+                            "study materials to give concise, structured answers.\n\n"
+                            "Guidelines (very important):\n"
+                            "- Keep answers short and focused (around 120–180 words)\n"
+                            "- Use simple structure that is easy to read in plain text\n"
+                            "- Prefer numbered or hyphenated points, but DO NOT use Markdown bold/italics (no **, no *)\n"
+                            "- Include 2–4 key points or dimensions of the answer, not long essays\n"
+                            "- Cite which sources you used when relevant\n"
+                            "- If information is insufficient, briefly mention what's missing\n"
+                            "- Output must be plain text only, without any Markdown formatting"
+                        )
 
-                    # Persist updated chat history in the session
-                    chat_history = temp_history + [
-                        {"role": "assistant", "content": answer}
-                    ]
-                    request.session["upsc_chat_history"] = chat_history
-                    request.session["upsc_chat_last_date"] = today_str
-                    request.session.modified = True
+                        # Temporary history including the new user question
+                        temp_history = chat_history + [
+                            {"role": "user", "content": question}
+                        ]
 
-            except Exception as exc:
-                if error is None:
-                    error = str(exc)
+                        # Limit history to last 10 turns to keep prompts manageable
+                        recent_history = temp_history[-10:]
+
+                        messages = [{"role": "system", "content": system_prompt}]
+                        for m in recent_history[:-1]:
+                            messages.append({"role": m["role"], "content": m["content"]})
+
+                        # Latest user message augmented with RAG context
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"Question: {question}\n\n{context_text}\n\n"
+                                    "Using the above study material and our previous conversation, "
+                                    "provide a comprehensive UPSC-focused answer."
+                                ),
+                            }
+                        )
+
+                        response = openai_client.chat.completions.create(
+                            model="gpt-3.5-turbo",
+                            messages=messages,
+                            max_tokens=1000,
+                            temperature=0.7,
+                        )
+
+                        answer = response.choices[0].message.content or ""
+                        # Strip any accidental Markdown bold markers
+                        answer = answer.replace("**", "").strip()
+
+                        # Persist updated chat history in the session
+                        chat_history = temp_history + [
+                            {"role": "assistant", "content": answer}
+                        ]
+                        request.session["upsc_chat_history"] = chat_history
+                        request.session["upsc_chat_last_date"] = today_str
+                        request.session.modified = True
+
+                except Exception as exc:
+                    if error is None:
+                        error = str(exc)
 
     context = {
         "question": "",

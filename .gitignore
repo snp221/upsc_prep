@@ -1,6 +1,5 @@
 chroma_db/
 db.sqlite3
-upsc_data/**/*.pdf
 *.sqlite3
 __pycache__/
 *.pyc
